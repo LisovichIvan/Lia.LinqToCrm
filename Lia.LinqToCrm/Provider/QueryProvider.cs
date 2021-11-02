@@ -1402,11 +1402,6 @@ namespace Lia.LinqToCrm.Provider
 				return;
 			}
 
-			if (expression is MethodCallExpression methodCallExpression)
-			{
-				
-			}
-
 			var constantExpression = expression is MethodCallExpression 
 				? expression.GetMethodsPreorder().Last().Arguments[0] as ConstantExpression 
 				: expression as ConstantExpression;
@@ -1416,87 +1411,5 @@ namespace Lia.LinqToCrm.Provider
 				qe.EntityName = entityQuery.EntityLogicalName;
 			}
 		}
-
-		private sealed class NavigationSource
-		{
-			public EntityReference Target { get; }
-
-			public Relationship Relationship { get; }
-
-			public NavigationSource(EntityReference target, Relationship relationship)
-			{
-				Target = target;
-				Relationship = relationship;
-			}
-		}
-
-		private sealed class FilterExpressionWrapper
-		{
-			public FilterExpression Filter { get; }
-
-			public string Alias { get; }
-
-			public FilterExpressionWrapper(FilterExpression filter, string alias)
-			{
-				Filter = filter ?? throw new ArgumentNullException(nameof(filter));
-				Alias = alias;
-			}
-		}
-
-		private sealed class LinkLookup
-		{
-			public string ParameterName { get; }
-
-			public string Environment { get; }
-
-			public LinkEntity Link { get; }
-
-			public string SelectManyEnvironment { get; }
-
-			public LinkLookup(string parameterName, string environment, LinkEntity link, string selectManyEnvironment = null)
-			{
-				ParameterName = parameterName;
-				Environment = environment;
-				Link = link;
-				SelectManyEnvironment = selectManyEnvironment;
-			}
-		}
-
-		private sealed class Projection
-		{
-			public string MethodName { get; }
-
-			public LambdaExpression Expression { get; }
-
-			public Projection(string methodName, LambdaExpression expression)
-			{
-				MethodName = methodName;
-				Expression = expression;
-			}
-		}
-
-		private sealed class EntityColumn
-		{
-			public string ParameterName { get; }
-
-			public string Column { get; }
-
-			public bool AllColumns { get; }
-
-			public EntityColumn() { }
-
-			public EntityColumn(string parameterName, string column)
-			{
-				ParameterName = parameterName;
-				Column = column;
-			}
-
-			public EntityColumn(string parameterName, bool allColumns)
-			{
-				ParameterName = parameterName;
-				AllColumns = allColumns;
-			}
-		}
 	}
-
 }
