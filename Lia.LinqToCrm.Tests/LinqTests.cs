@@ -2,7 +2,6 @@ using NUnit.Framework;
 
 namespace Lia.LinqToCrm.Tests
 {
-
 	public class LinqTests
 	{
 		static ICrmQueryable<int> a = null;

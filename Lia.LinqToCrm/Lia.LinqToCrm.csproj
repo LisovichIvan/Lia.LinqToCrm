@@ -21,6 +21,7 @@
     <DefineConstants>DEBUG;TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
+    <LangVersion>9</LangVersion>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>pdbonly</DebugType>
@@ -29,6 +30,7 @@
     <DefineConstants>TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
+    <LangVersion>9</LangVersion>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Microsoft.Crm.Sdk.Proxy, Version=7.0.0.0, Culture=neutral, PublicKeyToken=31bf3856ad364e35, processorArchitecture=MSIL">
@@ -61,6 +63,10 @@
     <Reference Include="System.Xml" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Common\ExpressionExtensions.cs" />
+    <Compile Include="Common\InEx.cs" />
+    <Compile Include="Common\MemberInfoExtensions.cs" />
+    <Compile Include="Common\TypeExtensions.cs" />
     <Compile Include="Context.cs" />
     <Compile Include="CrmQueryableEx.cs" />
     <Compile Include="CrmQueryableOrderByEx.cs" />
@@ -73,11 +79,17 @@
     <Compile Include="ICrmQueryableTake.cs" />
     <Compile Include="ICrmQueryProvider.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="Provider\Common.cs" />
+    <Compile Include="Provider\JoinData.cs" />
+    <Compile Include="Provider\LinkData.cs" />
+    <Compile Include="Provider\QueryProvider.cs" />
     <Compile Include="Query.cs" />
+    <Compile Include="QueryableNoLock.cs" />
     <Compile Include="QuNotSupported.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
   </ItemGroup>
+  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
 </Project>

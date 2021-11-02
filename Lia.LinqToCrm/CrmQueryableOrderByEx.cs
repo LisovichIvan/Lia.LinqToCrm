@@ -1,10 +1,16 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq.Expressions;
 
 namespace Lia.LinqToCrm
 {
 	public static class CrmQueryableOrderByEx
 	{
+		public static List<TSource> ToList<TSource>(this ICrmOrderedQueryable<TSource> source)
+		{
+			return null;
+		}	
+
 		public static ICrmOrderedQueryable<TSource> OrderBy<TSource, TKey>(
 			this ICrmQueryable<TSource> source,
 			Expression<Func<TSource, TKey>> keySelector)

@@ -18,7 +18,7 @@ namespace Lia.LinqToCrm
 
 		public ICrmQueryable<T> CreateQuery<T>() where T : ICrmEntity
 		{
-			return new Query<T>();
+			return new Query<T>(null);
 		}
 	}
 }

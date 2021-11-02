@@ -7,25 +7,46 @@ namespace Lia.LinqToCrm
 {
 	internal class Query<T> : ICrmQueryable<T>
 	{
-		private readonly ICrmQueryProvider _provider;
-		private readonly Expression _expression;
+		public ICrmQueryProvider Provider { get; }
+		public Expression Expression { get; }
+
+		private readonly Query<T> _beforeQuery;
 
 		public Query(ICrmQueryProvider provider)
 		{
-			_provider = provider ?? throw new ArgumentNullException(nameof(provider));
-			_expression = Expression.Constant(this);
+			Provider = provider ?? throw new ArgumentNullException(nameof(provider));
+			Expression = Expression.Constant(this);
 		}
 
 		public Query(ICrmQueryProvider provider, Expression expression)
 		{
-			_provider = provider ?? throw new ArgumentNullException(nameof(provider));
-			_expression = expression ?? throw new ArgumentNullException(nameof(expression));
+			Provider = provider ?? throw new ArgumentNullException(nameof(provider));
+			Expression = expression ?? throw new ArgumentNullException(nameof(expression));
+		}
+
+		public Query(Query<T> beforeQuery, Expression expression)
+		{
+			_beforeQuery = beforeQuery ?? throw new ArgumentNullException(nameof(beforeQuery));
+			Provider = beforeQuery.Provider;
+			Expression = expression ?? throw new ArgumentNullException(nameof(expression));
 		}
 
 		public IEnumerator<T> GetEnumerator()
 		{
-			return _provider.GetEnumerator<T>(_expression);
+			throw new NotImplementedException();
 		}
 
+		internal IEnumerable<Expression> GetExpressionsChain()
+		{
+			if (_beforeQuery != null)
+			{
+				foreach (Expression expression in _beforeQuery.GetExpressionsChain())
+				{
+					yield return expression;
+				}
+			}
+
+			yield return Expression;
+		}
 	}
 }

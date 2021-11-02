@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 
@@ -6,6 +7,16 @@ namespace Lia.LinqToCrm
 {
 	public static class CrmQueryableEx
 	{
+		public static ICrmQueryable<TResult> Cast<TSource, TResult>(this ICrmQueryable<TSource> source)
+		{
+			return default;
+		}
+
+		public static List<TSource> ToList<TSource>(this ICrmQueryable<TSource> source)
+		{
+			return default;
+		}
+
 		public static TSource First<TSource>(this ICrmQueryable<TSource> source)
 		{
 			return default;

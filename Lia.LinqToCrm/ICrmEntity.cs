@@ -2,6 +2,6 @@
 {
 	public interface ICrmEntity
 	{
-
+		string EntityLogicalName { get; }
 	}
 }
