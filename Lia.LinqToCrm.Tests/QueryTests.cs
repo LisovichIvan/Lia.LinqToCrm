@@ -13,23 +13,16 @@ namespace Lia.LinqToCrm.Tests
 {
 	public class QueryTests
 	{
-		private IOrganizationService CreateOrganizationService(Action<OrganizationRequest> action)
+		private IOrganizationService CreateOrganizationService(Action<QueryExpression> action)
 		{
 			var crm = new Mock<IOrganizationService>();
 			crm
-				.Setup(s => s.Execute(It.IsAny<OrganizationRequest>()))
-				.Returns<OrganizationRequest>(q =>
+				.Setup(s => s.RetrieveMultiple(It.IsAny<QueryExpression>()))
+				.Returns<QueryExpression>(q =>
 				{
 					action(q);
 
-					var responce = new RetrieveMultipleResponse()
-					{
-						Results = new ParameterCollection
-						{
-							{ "EntityCollection", new EntityCollection() }
-						}
-					};
-					return responce;
+					return new EntityCollection();
 				});
 			return crm.Object;
 		}
@@ -62,13 +55,35 @@ namespace Lia.LinqToCrm.Tests
 		public void Create()
 		{
 			var crm = new Mock<IOrganizationService>();
-			//crm
-			//	.Setup(s => s.RetrieveMultiple(It.IsAny<QueryBase>()))
-			//	.Returns<QueryBase>(q => new EntityCollection());
 
 			var context = new Context(crm.Object);
 
 			var query = context.CreateQuery<Contact>();
+		}
+
+		[Test()]
+		public void Enumerate()
+		{
+			var qe = new QueryExpression("contact")
+			{
+				ColumnSet = {AllColumns = true},
+			};
+
+			var crm = CreateOrganizationService(queryExpression =>
+			{
+				Assert.IsNotNull(queryExpression);
+
+				EqualEx.AreEqual(qe, queryExpression);
+			});
+
+			var context = new Context(crm);
+
+			var query = context.CreateQuery<Contact>();
+
+			foreach (var item in query)
+			{
+				
+			}
 		}
 
 		[Test()]
@@ -77,14 +92,10 @@ namespace Lia.LinqToCrm.Tests
 			var qe = new QueryExpression("contact")
 			{
 				ColumnSet = {AllColumns = true},
-				PageInfo = {PageNumber = 1}
 			};
 
-			var crm = CreateOrganizationService(request =>
+			var crm = CreateOrganizationService(queryExpression =>
 			{
-				Assert.AreEqual("RetrieveMultiple", request.RequestName);
-
-				var queryExpression = request.Parameters["Query"] as QueryExpression;
 				Assert.IsNotNull(queryExpression);
 
 				EqualEx.AreEqual(qe, queryExpression);
@@ -95,6 +106,31 @@ namespace Lia.LinqToCrm.Tests
 			var query = context.CreateQuery<Contact>();
 
 			var a = query.ToList();
+			Assert.IsNotNull(a);
+		}
+
+		[Test()]
+		public void NoLock()
+		{
+			var qe = new QueryExpression("contact")
+			{
+				ColumnSet = {AllColumns = true},
+				NoLock = true
+			};
+
+			var crm = CreateOrganizationService(queryExpression =>
+			{
+				Assert.IsNotNull(queryExpression);
+
+				EqualEx.AreEqual(qe, queryExpression);
+			});
+
+			var context = new Context(crm);
+
+			var query = context.CreateQuery<Contact>();
+
+			var a = query.NoLock();
+			Assert.IsNotNull(a);
 		}
 
 		[Test()]
@@ -120,9 +156,11 @@ namespace Lia.LinqToCrm.Tests
 
 			var query = context.CreateQuery<Contact>();
 
-			var a = query.Select(x => x).First();
+			var a = query.First();
+			Assert.IsNotNull(a);
 		}
 
+/*
 		[Test()]
 		public void Skip()
 		{
@@ -1482,5 +1520,6 @@ namespace Lia.LinqToCrm.Tests
 				.Where(x => x.LastName == "test1")
 				.ToList();
 		}
+*/
 	}
 }

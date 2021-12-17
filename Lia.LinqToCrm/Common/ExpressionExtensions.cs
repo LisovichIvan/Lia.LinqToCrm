@@ -136,7 +136,7 @@ namespace Lia.LinqToCrm.Common
 
 		public static Expression FindPreorder(this Expression exp, Predicate<Expression> match)
 		{
-			return exp.GetSubtreePreorder().FirstOrDefault<Expression>(child => match(child));
+			return exp.GetSubtreePreorder().FirstOrDefault(child => match(child));
 		}
 
 		[SuppressMessage("Microsoft.Usage", "CA9888:DisposeObjectsCorrectly", Justification = "Value is returned from method and cannot be disposed.", Target = "local$0")]

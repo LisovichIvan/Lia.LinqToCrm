@@ -7,32 +7,32 @@ namespace Lia.LinqToCrm
 {
 	public static class QueryableNoLock
 	{
-		private static readonly Dictionary<Type, MethodInfo> _methodsMap = new Dictionary<Type, MethodInfo>();
+		private static readonly Dictionary<Type, MethodInfo> MethodsMap = new Dictionary<Type, MethodInfo>();
 		private static readonly MethodInfo _noLock = typeof(QueryableNoLock).GetMethod(nameof(QueryableNoLock.NoLock));
 
 		private static MethodInfo GetMethod(Type type)
 		{
-			if (_methodsMap.TryGetValue(type, out var value))
+			if (MethodsMap.TryGetValue(type, out var value))
 			{
 				return value;
 			}
 
 			lock (_noLock)
 			{
-				if (_methodsMap.TryGetValue(type, out value))
+				if (MethodsMap.TryGetValue(type, out value))
 				{
 					return value;
 				}
 
 				value = _noLock.MakeGenericMethod(type);
 
-				_methodsMap.Add(type, value);
+				MethodsMap.Add(type, value);
 
 				return value;
 			}
 		}
 
-		public static ICrmQueryable<TSource> NoLock<TSource>(this ICrmQueryable<TSource> source)
+		public static ICrmQueryable<TSource> NoLock<TSource>(this ICrmQueryable<TSource> source) where TSource : ICrmEntity
 		{
 			if (source == null)
 			{

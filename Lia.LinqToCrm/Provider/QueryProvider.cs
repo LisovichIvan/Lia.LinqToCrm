@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Linq.Expressions;
@@ -180,15 +181,16 @@ namespace Lia.LinqToCrm.Provider
 			return entity1;
 		}
 
-		private QueryExpression GetQueryExpression(List<MethodCallExpression> expressions, out bool throwIfSequenceIsEmpty, out bool throwIfSequenceNotSingle, out Projection projection, ref NavigationSource source, ref List<LinkLookup> linkLookups)
+		private (QueryExpression query, bool throwIfSequenceIsEmpty, bool throwIfSequenceNotSingle, Projection projection, List<LinkLookup> linkLookups) GetQueryExpression(List<MethodCallExpression> expressions, string entityName)
 		{
-			throwIfSequenceIsEmpty = false;
-			throwIfSequenceNotSingle = false;
-			projection = null;
+			bool throwIfSequenceIsEmpty = false;
+			bool throwIfSequenceNotSingle = false;
+			Projection projection = null;
+			List<LinkLookup> linkLookups = new List<LinkLookup>();
 			var skip = new int?();
 			var take = new int?();
-			var qe = new QueryExpression();
-			var isFirstJoin = expressions.Count > 0 && (expressions[0].Method.Name.In(nameof(Queryable.Join), nameof(Queryable.GroupJoin)));
+			var query = new QueryExpression();
+			var isFirstJoin = expressions.Count > 0 && expressions[0].Method.Name.In(nameof(Queryable.Join), nameof(Queryable.GroupJoin));
 			for (var i = 0; i < expressions.Count; ++i)
 			{
 				var mce = expressions[i];
@@ -202,27 +204,13 @@ namespace Lia.LinqToCrm.Provider
 					}
 					case nameof(QueryableNoLock.NoLock):
 					{
-						qe.NoLock = true;
+						query.NoLock = true;
 						break;
 					}
 					case nameof(Queryable.Count):
 					{
-						qe.PageInfo.ReturnTotalRecordCount = true;
+						query.PageInfo.ReturnTotalRecordCount = true;
 						throw new NotImplementedException();
-						break;
-					}
-					case nameof(Queryable.Join):
-					{
-						var data = TranslateJoin(qe, expressions, ref i);
-						projection = data.projection;
-						linkLookups = data.linkLookups;
-						break;
-					}
-					case nameof(Queryable.GroupJoin):
-					{
-						var data = TranslateGroupJoin(qe, expressions, ref i);
-						projection = data.projection;
-						linkLookups = data.linkLookups;
 						break;
 					}
 					case nameof(Queryable.FirstOrDefault):
@@ -233,7 +221,7 @@ namespace Lia.LinqToCrm.Provider
 						{
 							break;
 						}
-						TranslateWhere(qe, methodData.parameterName, methodData.Body, linkLookups);
+						TranslateWhere(query, methodData.parameterName, methodData.Body, linkLookups);
 						break;
 					}
 					case nameof(Queryable.SingleOrDefault):
@@ -246,7 +234,7 @@ namespace Lia.LinqToCrm.Provider
 						{
 							break;
 						}
-						TranslateWhere(qe, methodData.parameterName, methodData.Body, linkLookups);
+						TranslateWhere(query, methodData.parameterName, methodData.Body, linkLookups);
 						break;
 					}
 					case nameof(Queryable.First):
@@ -258,7 +246,7 @@ namespace Lia.LinqToCrm.Provider
 						{
 							break;
 						}
-						TranslateWhere(qe, methodData.parameterName, methodData.Body, linkLookups);
+						TranslateWhere(query, methodData.parameterName, methodData.Body, linkLookups);
 						break;
 					}
 					case nameof(Queryable.Single):
@@ -271,114 +259,77 @@ namespace Lia.LinqToCrm.Provider
 						{
 							break;
 						}
-						TranslateWhere(qe, methodData.parameterName, methodData.Body, linkLookups);
+						TranslateWhere(query, methodData.parameterName, methodData.Body, linkLookups);
 						break;
 					}
 					case nameof(Queryable.Where):
 					{
 						var methodData = GetMethodCallBody(mce);
-						TranslateWhere(qe, methodData.parameterName, methodData.Body, linkLookups);
+						TranslateWhere(query, methodData.parameterName, methodData.Body, linkLookups);
 						break;
 					}
 					case nameof(Queryable.OrderBy):
 					case nameof(Queryable.ThenBy):
 					{	
 						var methodData = GetMethodCallBody(mce);
-						TranslateOrderBy(qe, methodData.Body, methodData.parameterName, OrderType.Ascending, linkLookups);
+						TranslateOrderBy(query, methodData.Body, methodData.parameterName, OrderType.Ascending, linkLookups);
 						break;
 					}
 					case nameof(Queryable.OrderByDescending):
 					case nameof(Queryable.ThenByDescending):
 					{	
 						var methodData = GetMethodCallBody(mce);
-						TranslateOrderBy(qe, methodData.Body, methodData.parameterName, OrderType.Descending, linkLookups);
+						TranslateOrderBy(query, methodData.Body, methodData.parameterName, OrderType.Descending, linkLookups);
 						break;
 					}
+					//case nameof(Queryable.Join):
+					//{
+					//	var data = TranslateJoin(qe, expressions, ref i);
+					//	projection = data.projection;
+					//	linkLookups = data.linkLookups;
+					//	break;
+					//}
+					//case nameof(Queryable.GroupJoin):
+					//{
+					//	var data = TranslateGroupJoin(qe, expressions, ref i);
+					//	projection = data.projection;
+					//	linkLookups = data.linkLookups;
+					//	break;
+					//}
 					case nameof(Queryable.Select):
 					{
-						if (linkLookups != null && !isFirstJoin)
+						if (!isFirstJoin)
 						{
 							linkLookups.Clear();
 						}
 
-						TranslateEntityName(qe, expression);
-						var operand = (mce.Arguments[1] as UnaryExpression).Operand as LambdaExpression;
+						TranslateEntityName(query, mce);
+						var operand = ((UnaryExpression) mce.Arguments[1]).Operand as LambdaExpression;
 						projection = new Projection(methodName, operand);
-						var expression1 = TranslateSelect(expressions, i, qe, operand, ref source);
-						if (expression1 != null)
-						{
-							return GetQueryExpression(expression1, out throwIfSequenceIsEmpty, out throwIfSequenceNotSingle, out projection, ref source, ref linkLookups);
-						}
 
 						break;
 					}
-					//case nameof(Queryable.Skip):
-					//{
-					//	if (mce.Arguments[1] is ConstantExpression constantExpression)
-					//	{
-					//		qe.PageInfo.PageNumber += Math.Max(0, constantExpression.GetValue<int>());
-					//	}
-					//	//skip = (int)(mce.Arguments[1] as ConstantExpression).Value;
-						
-					//	//if (skip.HasValue)
-					//	//{
-					//	//	var nullable = skip;
-					//	//	if ((nullable.GetValueOrDefault() >= 0 ? 0 : nullable.HasValue ? 1 : 0) != 0)
-					//	//	{
-					//	//		throw new NotSupportedException("Skip operator does not support negative values.");
-					//	//	}
-					//	//}
-					//	break;
-					//}
-					//case nameof(Queryable.Take):
-					//{
-					//	if (mce.Arguments[1] is ConstantExpression constantExpression)
-					//	{
-					//		var value = Math.Max(0, constantExpression.GetValue<int>());
-
-					//		qe.PageInfo.Count = Math.Min(qe.PageInfo.Count, value);
-					//	}
-
-					//	//take = (int)(mce.Arguments[1] as ConstantExpression).Value;
-					//	//if (take.HasValue)
-					//	//{
-					//	//	var nullable = take;
-					//	//	if ((nullable.GetValueOrDefault() > 0 ? 0 : nullable.HasValue ? 1 : 0) != 0)
-					//	//	{
-					//	//		throw new NotSupportedException("Take/Top operators only support positive values.");
-					//	//	}
-					//	//}
-					//	break;
-					//}
 					case nameof(Enumerable.Distinct):
-						qe.Distinct = true;
+						query.Distinct = true;
 						break;
-					case nameof(Queryable.SelectMany):
-					{
-						if (linkLookups != null && !isFirstJoin)
-						{
-							linkLookups.Clear();
-						}
-
-						TranslateEntityName(qe, expression);
-						var operand2 = (mce.Arguments[1] as UnaryExpression).Operand as LambdaExpression;
-						var selectMany = TranslateSelectMany(expressions, i, qe, operand2, ref source);
-						return GetQueryExpression(selectMany, out throwIfSequenceIsEmpty, out throwIfSequenceNotSingle, out projection, ref source, ref linkLookups);
-					}
 				}
+				TranslateEntityName(query, mce);
 			}
 
 			if (projection != null)
 			{
-				TranslateSelect(qe, projection.Expression, linkLookups);
-				FixOrderBy(qe, projection.Expression);
+				AddColumnToColumntSet(query, projection.Expression, linkLookups);
 			}
 
-			BuildPagingInfo(qe, skip, take);
+			if (expressions.Count == 0)
+			{
+				query.EntityName = entityName;
+			}
 
-			FixEntityName(qe, expression);
-			FixColumnSet(qe);
-			return qe;
+			BuildPagingInfo(query, skip, take);
+
+			FixColumnSet(query);
+			return (query, throwIfSequenceIsEmpty, throwIfSequenceNotSingle, projection, linkLookups);
 		}
 
 		private static string GetEnvironment(ParameterInfo pi, string environment)
@@ -409,169 +360,160 @@ namespace Lia.LinqToCrm.Provider
 			}
 		}
 
-		private void FixOrderBy(QueryExpression qe, LambdaExpression exp)
-		{
-		}
-
-		private void FixEntityName(QueryExpression qe, Expression expression)
-		{
-			TranslateEntityName(qe, expression);
-		}
-
 		private void FixColumnSet(QueryExpression qe)
 		{
 			qe.ColumnSet = qe.ColumnSet == null || qe.ColumnSet.Columns.Count == 0 ? new ColumnSet(true) : qe.ColumnSet;
 		}
 
-		private (Projection projection, List<LinkLookup> linkLookups) TranslateJoin(QueryExpression qe, List<MethodCallExpression> methods, ref int i)
-		{
-			var num = 0;
-			var source = new List<LinkData>();
-			Projection projection;
-			do
-			{
-				var method = new JoinData(methods[i]);
-				projection = new Projection(method.MethodName, method.ResultSelector.Operand as LambdaExpression);
-				string str;
-				string environment;
-				if (i < methods.Count - 1)
-				{
-					environment = GetEnvironmentForParameter(projection.Expression, 0);
-					str = GetEnvironmentForParameter(projection.Expression, 1);
-				}
-				else
-				{
-					environment = str = null;
-				}
+		//private (Projection projection, List<LinkLookup> linkLookups) TranslateJoin(QueryExpression qe, List<MethodCallExpression> methods, ref int i)
+		//{
+		//	var num = 0;
+		//	var source = new List<LinkData>();
+		//	Projection projection;
+		//	do
+		//	{
+		//		var method = new JoinData(methods[i]);
+		//		projection = new Projection(method.MethodName, method.ResultSelector.Operand as LambdaExpression);
+		//		string str;
+		//		string environment;
+		//		if (i < methods.Count - 1)
+		//		{
+		//			environment = GetEnvironmentForParameter(projection.Expression, 0);
+		//			str = GetEnvironmentForParameter(projection.Expression, 1);
+		//		}
+		//		else
+		//		{
+		//			environment = str = null;
+		//		}
 
-				var operand1 = method.OuterKeySelector.Operand as LambdaExpression;
-				var name1 = operand1.Parameters[0].Name;
-				var entityExpression = FindValidEntityExpression(operand1.Body, nameof(Queryable.Join));
-				var attributeName1 = TranslateExpressionToAttributeName(entityExpression);
+		//		var operand1 = method.OuterKeySelector.Operand as LambdaExpression;
+		//		var name1 = operand1.Parameters[0].Name;
+		//		var entityExpression = FindValidEntityExpression(operand1.Body, nameof(Queryable.Join));
+		//		var attributeName1 = TranslateExpressionToAttributeName(entityExpression);
 				
-				var operand2 = method.InnerKeySelector.Operand as LambdaExpression;
-				var name2 = operand2.Parameters[0].Name;
-				var entityExpression2 = FindValidEntityExpression(operand2.Body, nameof(Queryable.Join));
-				var attributeName2 = TranslateExpressionToAttributeName(entityExpression2);
+		//		var operand2 = method.InnerKeySelector.Operand as LambdaExpression;
+		//		var name2 = operand2.Parameters[0].Name;
+		//		var entityExpression2 = FindValidEntityExpression(operand2.Body, nameof(Queryable.Join));
+		//		var attributeName2 = TranslateExpressionToAttributeName(entityExpression2);
 				
-				var entityLogicalName = (method.Inner.Value as ICrmEntity).EntityLogicalName;
+		//		var entityLogicalName = (method.Inner.Value as ICrmEntity).EntityLogicalName;
 				
-				LinkEntity linkEntity;
-				if (source.Count == 0)
-				{
-					qe.EntityName = (method.Outer.Value as ICrmEntity).EntityLogicalName;
+		//		LinkEntity linkEntity;
+		//		if (source.Count == 0)
+		//		{
+		//			qe.EntityName = (method.Outer.Value as ICrmEntity).EntityLogicalName;
 
-					source.Add(new LinkData(name1, null, environment, environment));
+		//			source.Add(new LinkData(name1, null, environment, environment));
 
-					linkEntity = qe.AddLink(entityLogicalName, attributeName1, attributeName2, JoinOperator.Inner);
-				}
-				else
-				{
-					if (environment != null)
-					{
-						foreach (var linkData in source)
-						{
-							linkData.Environment = environment + "." + linkData.Environment;
-						}
-					}
+		//			linkEntity = qe.AddLink(entityLogicalName, attributeName1, attributeName2, JoinOperator.Inner);
+		//		}
+		//		else
+		//		{
+		//			if (environment != null)
+		//			{
+		//				foreach (var linkData in source)
+		//				{
+		//					linkData.Environment = environment + "." + linkData.Environment;
+		//				}
+		//			}
 
-					var parentMember = GetUnderlyingMemberExpression(entityExpression).Member.Name;
+		//			var parentMember = GetUnderlyingMemberExpression(entityExpression).Member.Name;
 					
-					var linkEntity2 = source.Single(l => l.Item1 == parentMember).Link;
+		//			var linkEntity2 = source.Single(l => l.Item1 == parentMember).Link;
 					
-					linkEntity = linkEntity2 == null 
-						? qe.AddLink(entityLogicalName, attributeName1, attributeName2, JoinOperator.Inner) 
-						: linkEntity2.AddLink(entityLogicalName, attributeName1, attributeName2, JoinOperator.Inner);
-				}
-				linkEntity.EntityAlias = $"{name2}_{num++}";
-				source.Add(new LinkData(name2, linkEntity, str, str));
-				++i;
-			}
-			while (i < methods.Count && methods[i].Method.Name == nameof(Queryable.Join));
+		//			linkEntity = linkEntity2 == null 
+		//				? qe.AddLink(entityLogicalName, attributeName1, attributeName2, JoinOperator.Inner) 
+		//				: linkEntity2.AddLink(entityLogicalName, attributeName1, attributeName2, JoinOperator.Inner);
+		//		}
+		//		linkEntity.EntityAlias = $"{name2}_{num++}";
+		//		source.Add(new LinkData(name2, linkEntity, str, str));
+		//		++i;
+		//	}
+		//	while (i < methods.Count && methods[i].Method.Name == nameof(Queryable.Join));
 			
-			--i;
-			var linkLookups = source.Select(l => new LinkLookup(l.ParameterName, l.Environment, l.Link)).ToList();
-			return (projection, linkLookups);
-		}
+		//	--i;
+		//	var linkLookups = source.Select(l => new LinkLookup(l.ParameterName, l.Environment, l.Link)).ToList();
+		//	return (projection, linkLookups);
+		//}
 
-		private (Projection projection, List<LinkLookup> linkLookups) TranslateGroupJoin(QueryExpression qe, List<MethodCallExpression> methods, ref int i)
-		{
-			var method1 = methods[i];
-			var linkLookups1 = TranslateJoin(qe, methods, ref i).linkLookups;
-			++i;
-			if (i + 1 > methods.Count || !IsValidLeftOuterSelectManyExpression(methods[i]))
-			{
-				throw new NotSupportedException("The 'GroupJoin' operation must be followed by a 'SelectMany' operation where the collection selector is invoking the 'DefaultIfEmpty' method.");
-			}
+		//private (Projection projection, List<LinkLookup> linkLookups) TranslateGroupJoin(QueryExpression qe, List<MethodCallExpression> methods, ref int i)
+		//{
+		//	var method1 = methods[i];
+		//	var linkLookups1 = TranslateJoin(qe, methods, ref i).linkLookups;
+		//	++i;
+		//	if (i + 1 > methods.Count || !IsValidLeftOuterSelectManyExpression(methods[i]))
+		//	{
+		//		throw new NotSupportedException("The 'GroupJoin' operation must be followed by a 'SelectMany' operation where the collection selector is invoking the 'DefaultIfEmpty' method.");
+		//	}
 
-			var method2 = methods[i];
-			LambdaExpression expression;
-			if (method2.Arguments.Count == 3)
-			{
-				expression = (method2.Arguments[2] as UnaryExpression).Operand as LambdaExpression;
-			}
-			else
-			{
-				var parameter1 = ((method2.Arguments[1] as UnaryExpression).Operand as LambdaExpression).Parameters[0];
-				var parameter2 = ((method1.Arguments[3] as UnaryExpression).Operand as LambdaExpression).Parameters[0];
-				expression = Expression.Lambda(parameter2, parameter1, parameter2);
-			}
-			var projection = new Projection(method2.Method.Name, expression);
-			var environmentForParameter1 = GetEnvironmentForParameter(projection.Expression, 0);
-			var environmentForParameter2 = GetEnvironmentForParameter(projection.Expression, 1);
+		//	var method2 = methods[i];
+		//	LambdaExpression expression;
+		//	if (method2.Arguments.Count == 3)
+		//	{
+		//		expression = (method2.Arguments[2] as UnaryExpression).Operand as LambdaExpression;
+		//	}
+		//	else
+		//	{
+		//		var parameter1 = ((method2.Arguments[1] as UnaryExpression).Operand as LambdaExpression).Parameters[0];
+		//		var parameter2 = ((method1.Arguments[3] as UnaryExpression).Operand as LambdaExpression).Parameters[0];
+		//		expression = Expression.Lambda(parameter2, parameter1, parameter2);
+		//	}
+		//	var projection = new Projection(method2.Method.Name, expression);
+		//	var environmentForParameter1 = GetEnvironmentForParameter(projection.Expression, 0);
+		//	var environmentForParameter2 = GetEnvironmentForParameter(projection.Expression, 1);
 			
-			var firstJoinLink = linkLookups1[0];
+		//	var firstJoinLink = linkLookups1[0];
 			
-			var environment1 = environmentForParameter1 == null ? firstJoinLink.Environment : $"{environmentForParameter1}.{firstJoinLink.Environment}";
-			var linkLookup = new LinkLookup(firstJoinLink.ParameterName, environment1, firstJoinLink.Link, firstJoinLink.Environment);
+		//	var environment1 = environmentForParameter1 == null ? firstJoinLink.Environment : $"{environmentForParameter1}.{firstJoinLink.Environment}";
+		//	var linkLookup = new LinkLookup(firstJoinLink.ParameterName, environment1, firstJoinLink.Link, firstJoinLink.Environment);
 			
-			var linkLookupList1 = new List<LinkLookup>();
+		//	var linkLookupList1 = new List<LinkLookup>();
 			
-			linkLookupList1.Add(linkLookup);
-			linkLookupList1.Add(new LinkLookup(linkLookups1[1].ParameterName, environmentForParameter2, linkLookups1[1].Link));
+		//	linkLookupList1.Add(linkLookup);
+		//	linkLookupList1.Add(new LinkLookup(linkLookups1[1].ParameterName, environmentForParameter2, linkLookups1[1].Link));
 
-			linkLookups1[1].Link.JoinOperator = JoinOperator.LeftOuter;
+		//	linkLookups1[1].Link.JoinOperator = JoinOperator.LeftOuter;
 
-			return (projection, linkLookupList1);
-		}
+		//	return (projection, linkLookupList1);
+		//}
 
-		private bool IsValidLeftOuterSelectManyExpression(MethodCallExpression mce)
-		{
-			return 
-				mce.Method.Name == nameof(Queryable.SelectMany) && 
-				mce.Arguments[1] is UnaryExpression unaryExpression1 && 
-				unaryExpression1.Operand is LambdaExpression operand1 && 
-				operand1.Body is MethodCallExpression body && 
-				body.Method.Name == nameof(Queryable.DefaultIfEmpty) && 
-				body.Arguments.Count == 1 && 
-				(
-					mce.Arguments.Count == 2 || 
-					mce.Arguments.Count == 3 && 
-					mce.Arguments[2] is UnaryExpression unaryExpression2 && 
-					unaryExpression2.Operand is LambdaExpression operand2 && 
-					operand2.Parameters.Count == 2
-				);
-		}
+		//private bool IsValidLeftOuterSelectManyExpression(MethodCallExpression mce)
+		//{
+		//	return 
+		//		mce.Method.Name == nameof(Queryable.SelectMany) && 
+		//		mce.Arguments[1] is UnaryExpression unaryExpression1 && 
+		//		unaryExpression1.Operand is LambdaExpression operand1 && 
+		//		operand1.Body is MethodCallExpression body && 
+		//		body.Method.Name == nameof(Queryable.DefaultIfEmpty) && 
+		//		body.Arguments.Count == 1 && 
+		//		(
+		//			mce.Arguments.Count == 2 || 
+		//			mce.Arguments.Count == 3 && 
+		//			mce.Arguments[2] is UnaryExpression unaryExpression2 && 
+		//			unaryExpression2.Operand is LambdaExpression operand2 && 
+		//			operand2.Parameters.Count == 2
+		//		);
+		//}
 
-		private string GetEnvironmentForParameter(LambdaExpression projection, int index)
-		{
-			if (projection.Body is NewExpression body)
-			{
-				var parameter = projection.Parameters[index];
-				var arguments = body.Arguments;
+		//private string GetEnvironmentForParameter(LambdaExpression projection, int index)
+		//{
+		//	if (projection.Body is NewExpression body)
+		//	{
+		//		var parameter = projection.Parameters[index];
+		//		var arguments = body.Arguments;
 
-				for (int i = 0; i < arguments.Count; i++)
-				{
-					var argument = arguments[i];
-					if (argument == parameter)
-					{
-						return body.Members[i].Name;
-					}
-				}
-			}
+		//		for (int i = 0; i < arguments.Count; i++)
+		//		{
+		//			var argument = arguments[i];
+		//			if (argument == parameter)
+		//			{
+		//				return body.Members[i].Name;
+		//			}
+		//		}
+		//	}
 
-			return null;
-		}
+		//	return null;
+		//}
 
 		private ConditionOperator NegateOperator(ConditionOperator op)
 		{
@@ -594,7 +536,7 @@ namespace Lia.LinqToCrm.Provider
 		{
 			if (_booleanLookup.ContainsKey(be.NodeType))
 			{
-				var entityExr = FindEntityExpression(be.Left);
+				var entityExr = be.Left.FindPreorder(IsEntityExpression);
 				parentFilter = GetFilter(entityExr, parentFilter, getFilter);
 				var filter = parentFilter.Filter.AddFilter(_booleanLookup[be.NodeType]);
 				var parentFilter1 = new FilterExpressionWrapper(filter, parentFilter.Alias);
@@ -932,7 +874,7 @@ namespace Lia.LinqToCrm.Provider
 			}
 			else
 			{
-				throw new NotSupportedException("The 'orderBy' call must specify property names.");
+				throw new NotSupportedException($"The '{nameof(Queryable.OrderBy)}' call must specify property names.");
 			}
 		}
 
@@ -958,75 +900,62 @@ namespace Lia.LinqToCrm.Provider
 			throw new NotSupportedException($"The '{operationName}' expression is limited to invoking the '{linkLookup.ParameterName}' parameter.");
 		}
 
-		private Expression TranslateSelect(List<MethodCallExpression> methods, int i, QueryExpression qe, LambdaExpression exp, ref NavigationSource source)
-		{
-			var subExpression = TranslateSelect(exp, qe, ref source);
-			return subExpression == null ? null : MergeSubExpression(subExpression, methods, i);
-		}
-
-		private Expression TranslateSelect(LambdaExpression exp, QueryExpression qe, ref NavigationSource source)
-		{
-			if (qe.Criteria.Conditions.Count != 1 || qe.Criteria.Conditions[0].Values.Count != 1 || !(qe.Criteria.Conditions[0].Values[0] is Guid))
-			{
-				return null;
-			}
-
-			var condition = qe.Criteria.Conditions[0];
-			var target = new EntityReference(qe.EntityName, (Guid) condition.Values[0]);
-			var relationshipQuery = GetSelectRelationshipQuery(exp, true);
-			if (relationshipQuery.q != null)
-			{
-				source = new NavigationSource(target, relationshipQuery.relationship);
-				return relationshipQuery.q.Expression;
-			}
-			source = null;
-			return null;
-		}
-
-		private void TranslateSelect(QueryExpression qe, LambdaExpression exp, List<LinkLookup> linkLookups)
+		private void AddColumnToColumntSet(QueryExpression qe, LambdaExpression exp, List<LinkLookup> linkLookups)
 		{
 			var parameterName = exp.Parameters[0].Name;
+
 			foreach (var column in TraverseSelect(exp.Body))
 			{
 				if (linkLookups != null)
 				{
 					var expName = column.ParameterName;
-					var linkLookup1 = linkLookups.SingleOrDefault(l => $"{parameterName}.{l.Environment}" == expName);
-					if (linkLookup1?.Link != null)
+
+					var linkLookup = linkLookups.SingleOrDefault(l => $"{parameterName}.{l.Environment}" == expName);
+					if (linkLookup != null)
 					{
-						TranslateSelect(column, linkLookup1.Link.Columns);
-						continue;
-					}
-					if (linkLookup1 == null && exp.Parameters.Count > 1)
-					{
-						var name = exp.Parameters[1].Name;
-						var linkLookup2 = column.ParameterName == name ? linkLookups.Last() : column.ParameterName != parameterName || linkLookups.Count != 2 ? null : linkLookups.First();
-						if (linkLookup2?.Link != null)
+						if (linkLookup.Link != null)
 						{
-							TranslateSelect(column, linkLookup2.Link.Columns);
+							AddColumnToColumnSet(column, linkLookup.Link.Columns);
 							continue;
 						}
 					}
+					else
+					{
+						if (exp.Parameters.Count > 1)
+						{
+							var name = exp.Parameters[1].Name;
+
+							var linkLookup2 = column.ParameterName == name 
+								? linkLookups.Last() 
+								: column.ParameterName != parameterName || linkLookups.Count != 2 
+									? null
+									: linkLookups.First();
+
+							if (linkLookup2?.Link != null)
+							{
+								AddColumnToColumnSet(column, linkLookup2.Link.Columns);
+								continue;
+							}
+						}
+					}
 				}
-				TranslateSelect(column, qe.ColumnSet);
+				AddColumnToColumnSet(column, qe.ColumnSet);
 			}
 		}
 
-		private void TranslateSelect(EntityColumn column, ColumnSet columnSet)
+		private void AddColumnToColumnSet(EntityColumn column, ColumnSet columnSet)
 		{
 			if (column.AllColumns)
 			{
-				columnSet.AllColumns = true;
+				return;
 			}
-			else
+			
+			if (columnSet.Columns.Contains(column.Column))
 			{
-				if (columnSet.AllColumns || columnSet.Columns.Contains(column.Column))
-				{
-					return;
-				}
-
-				columnSet.AddColumn(column.Column);
+				return;
 			}
+
+			columnSet.AddColumn(column.Column);
 		}
 
 		private IEnumerable<EntityColumn> TraverseSelect(Expression exp)
@@ -1053,105 +982,80 @@ namespace Lia.LinqToCrm.Provider
 
 		private EntityColumn TranslateSelectColumn(Expression exp)
 		{
-			var memberExpression = exp as MemberExpression;
-			var methodCallExpression = exp as MethodCallExpression;
-			var pe = exp as ParameterExpression;
-			if (memberExpression?.Expression != null && IsEntity(memberExpression.Expression.Type) || methodCallExpression?.Object != null && IsEntity(methodCallExpression.Object.Type))
+			if (exp is MemberExpression memberExpression)
 			{
-				if (memberExpression != null && memberExpression.Member.DeclaringType == typeof(Entity))
+				if (memberExpression.Expression != null && IsEntity(memberExpression.Expression.Type))
 				{
-					return new EntityColumn();
+					var attributeName = TranslateExpressionToAttributeName(memberExpression);
+					if (!string.IsNullOrEmpty(attributeName))
+					{
+						return new EntityColumn(GetUnderlyingParameterExpressionName(memberExpression), attributeName);
+					}
 				}
-
-				var attributeName = TranslateExpressionToAttributeName(exp);
-				if (!string.IsNullOrEmpty(attributeName))
+				else
 				{
-					return new EntityColumn(GetUnderlyingParameterExpressionName(exp), attributeName);
+					if (IsEntity(memberExpression.Type))
+					{
+						return new EntityColumn(memberExpression.ToString(), true);
+					}
+
+					if (IsEnumerableEntity(memberExpression.Type))
+					{
+						throw new NotSupportedException($"The expression '{memberExpression}' is an invalid column projection expression. Entity collections cannot be selected.");
+					}
 				}
 			}
 			else
 			{
-				if (memberExpression != null && IsEntity(memberExpression.Type) || methodCallExpression != null && IsEntity(methodCallExpression.Type))
+				if (exp is MethodCallExpression methodCallExpression)
 				{
-					return new EntityColumn(exp.ToString(), true);
-				}
+					if (methodCallExpression.Object != null && IsEntity(methodCallExpression.Object.Type))
+					{
+						var attributeName = TranslateExpressionToAttributeName(methodCallExpression);
+						if (!string.IsNullOrEmpty(attributeName))
+						{
+							return new EntityColumn(GetUnderlyingParameterExpressionName(methodCallExpression), attributeName);
+						}
+					}
+					else
+					{
+						if (IsEntity(methodCallExpression.Type))
+						{
+							return new EntityColumn(methodCallExpression.ToString(), true);
+						}
 
-				if (memberExpression != null && IsEnumerableEntity(memberExpression.Type) || methodCallExpression != null && IsEnumerableEntity(methodCallExpression.Type))
+						if (IsEnumerableEntity(methodCallExpression.Type))
+						{
+							throw new NotSupportedException($"The expression '{methodCallExpression}' is an invalid column projection expression. Entity collections cannot be selected.");
+						}
+					}
+				}
+				else
 				{
-					throw new NotSupportedException($"The expression '{exp}' is an invalid column projection expression. Entity collections cannot be selected.");
+					var pe = exp as ParameterExpression;
+					return TranslateSelectColumn(pe);
 				}
 			}
-			return TranslateSelectColumn(pe);
+
+			return null;
 		}
 
 		private EntityColumn TranslateSelectColumn(ParameterExpression pe)
 		{
-			if (pe != null && IsEntity(pe.Type))
+			if (pe != null)
 			{
-				return new EntityColumn(pe.ToString(), true);
-			}
-
-			if (pe != null && IsEnumerableEntity(pe.Type))
-			{
-				throw new NotSupportedException($"The expression '{pe}' is an invalid column projection expression. Entity collections cannot be selected.");
-			}
-
-			return null;
-		}
-
-		private Expression TranslateSelectMany(List<MethodCallExpression> methods, int i, QueryExpression qe, LambdaExpression exp, ref NavigationSource source)
-		{
-			var subExpression = TranslateSelectMany(qe, exp, ref source);
-			return subExpression == null ? null : MergeSubExpression(subExpression, methods, i);
-		}
-
-		private Expression MergeSubExpression(Expression subExpression, List<MethodCallExpression> methods, int i)
-		{
-			for (var index = i + 1; index < methods.Count; ++index)
-			{
-				var method = methods[index];
-				subExpression = Expression.Call(null, method.Method, new[] {subExpression}.Concat(method.Arguments.Skip(1)));
-			}
-			return subExpression;
-		}
-
-		private Expression TranslateSelectMany(QueryExpression qe, LambdaExpression exp, ref NavigationSource source)
-		{
-			if (qe.Criteria.Conditions.Count != 1 || qe.Criteria.Conditions[0].Values.Count != 1 || !(qe.Criteria.Conditions[0].Values[0] is Guid))
-			{
-				throw new InvalidOperationException("A 'SelectMany' operation must be preceeded by a 'Where' operation that filters by an entity ID.");
-			}
-
-			var condition = qe.Criteria.Conditions[0];
-			var target = new EntityReference(qe.EntityName, (Guid) condition.Values[0]);
-			var relationshipQuery = GetSelectRelationshipQuery(exp, false);
-			if (relationshipQuery.q != null)
-			{
-				source = new NavigationSource(target, relationshipQuery.relationship);
-				return relationshipQuery.q.Expression;
-			}
-			source = null;
-			return null;
-		}
-
-		private (IQueryable q, Relationship relationship) GetSelectRelationshipQuery(LambdaExpression exp, bool isSelect)
-		{
-			if (!(FindEntityExpression(exp.Body) is MemberExpression entityExpression))
-			{
-				return (null, null);
-			}
-			var defaultCustomAttribute = entityExpression.Member.GetFirstOrDefaultCustomAttribute<RelationshipSchemaNameAttribute>();
-			if (defaultCustomAttribute == null)
-			{
-				if (isSelect)
+				if (IsEntity(pe.Type))
 				{
-					return (null, null);
+					return new EntityColumn(pe.ToString(), true);
 				}
-				throw new InvalidOperationException($"The relationship property '{entityExpression.Member.Name}' is invalid.");
+
+				if (IsEnumerableEntity(pe.Type))
+				{
+					throw new NotSupportedException($"The expression '{pe}' is an invalid column projection expression. Entity collections cannot be selected.");
+				}
 			}
-			var relationship = defaultCustomAttribute.Relationship;
-			var q = CreateQuery(isSelect ? entityExpression.Type : entityExpression.Type.GetGenericArguments()[0]);
-			return (q, relationship);
+
+			return null;
 		}
 
 		private (string parameterName, Expression Body) GetMethodCallBody(MethodCallExpression mce)
@@ -1164,6 +1068,48 @@ namespace Lia.LinqToCrm.Provider
 			var firstArgument = (UnaryExpression)mce.Arguments[1];
 			var operand = (LambdaExpression)firstArgument.Operand;
 			return (operand.Parameters[0].Name, operand.Body);
+		}
+
+		private string TranslateExpressionToAttributeName(MethodCallExpression methodCallExpression)
+		{
+			var valueExpression = methodCallExpression.Method.IsStatic
+				? methodCallExpression.Arguments[1]
+				: methodCallExpression.Arguments[0];
+
+			var attributeName = TranslateExpressionToValue(valueExpression);
+			return (string)attributeName;
+		}
+
+		private string TranslateExpressionToAttributeName(MemberExpression memberExpression)
+		{
+			switch (memberExpression.Expression)
+			{
+				case MemberExpression expression:
+				{
+					var defaultCustomAttribute = expression.Member.GetFirstOrDefaultCustomAttribute<AttributeLogicalNameAttribute>();
+					if (defaultCustomAttribute != null)
+					{
+						return defaultCustomAttribute.LogicalName;
+					}
+
+					break;
+				}
+				case ParameterExpression expression:
+				{
+					if (memberExpression.Member.Name == "Id")
+					{
+						var defaultCustomAttribute = expression.Type.GetProperty("Id").GetFirstOrDefaultCustomAttribute<AttributeLogicalNameAttribute>();
+						if (defaultCustomAttribute != null)
+						{
+							return defaultCustomAttribute.LogicalName;
+						}
+					}
+
+					break;
+				}
+			}
+
+			return memberExpression.Member.GetLogicalName();
 		}
 
 		private string TranslateExpressionToAttributeName(Expression exp)
@@ -1254,23 +1200,18 @@ namespace Lia.LinqToCrm.Provider
 			}
 		}
 
-		private Expression FindEntityExpression(Expression exp)
-		{
-			return exp.FindPreorder(IsEntityExpression);
-		}
-
 		private bool IsEntityExpression(Expression e)
 		{
 			if (e is MethodCallExpression methodCallExpression)
 			{
 				if (methodCallExpression.Object != null)
 				{
-					return methodCallExpression.Object.Type is ICrmEntity;
+					return methodCallExpression.Object.Type == typeof(ICrmEntity);
 				}
 
 				if (methodCallExpression.Method.IsStatic)
 				{
-					return methodCallExpression.Arguments[0].Type is ICrmEntity;
+					return methodCallExpression.Arguments[0].Type == typeof(ICrmEntity);
 				}
 			}
 			else if (e is MemberExpression me)
@@ -1286,19 +1227,29 @@ namespace Lia.LinqToCrm.Provider
 			return IsEntity(me.Member.DeclaringType);
 		}
 
-		private MemberExpression GetUnderlyingMemberExpression(Expression exp)
-		{
-			switch (exp)
-			{
-				case MemberExpression memberExpression:
-					return memberExpression.Expression as MemberExpression;
-				case MethodCallExpression methodCallExpression:
-					return methodCallExpression.Object as MemberExpression;
-				default:
-					throw new InvalidOperationException($"The expression '{exp}' must be a '{typeof(MemberExpression)}' or a '{typeof(MethodCallExpression)}'.");
-			}
-		}
+		//private MemberExpression GetUnderlyingMemberExpression(Expression exp)
+		//{
+		//	switch (exp)
+		//	{
+		//		case MemberExpression memberExpression:
+		//			return memberExpression.Expression as MemberExpression;
+		//		case MethodCallExpression methodCallExpression:
+		//			return methodCallExpression.Object as MemberExpression;
+		//		default:
+		//			throw new InvalidOperationException($"The expression '{exp}' must be a '{typeof(MemberExpression)}' or a '{typeof(MethodCallExpression)}'.");
+		//	}
+		//}
 
+		private string GetUnderlyingParameterExpressionName(MemberExpression memberExpression)
+		{
+			return memberExpression.Expression.ToString();
+		}
+		private string GetUnderlyingParameterExpressionName(MethodCallExpression methodCallExpression)
+		{
+			Debug.Assert(methodCallExpression.Object != null, "methodCallExpression.Object != null");
+
+			return methodCallExpression.Object.ToString();
+		}
 		private string GetUnderlyingParameterExpressionName(Expression exp)
 		{
 			switch (exp)
@@ -1306,6 +1257,7 @@ namespace Lia.LinqToCrm.Provider
 				case MemberExpression memberExpression:
 					return memberExpression.Expression.ToString();
 				case MethodCallExpression methodCallExpression:
+					Debug.Assert(methodCallExpression.Object != null, "methodCallExpression.Object != null");
 					return methodCallExpression.Object.ToString();
 				default:
 					throw new InvalidOperationException($"The expression '{exp}' must be a '{typeof(MemberExpression)}' or a '{typeof(MethodCallExpression)}'.");

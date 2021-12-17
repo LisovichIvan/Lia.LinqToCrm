@@ -2,9 +2,38 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
+using System.Reflection;
 
 namespace Lia.LinqToCrm
 {
+	internal static class MethodInfoCache<T>
+	{
+		private static readonly Dictionary<Type, MethodInfo> MethodsMap = new Dictionary<Type, MethodInfo>();
+		private static readonly MethodInfo _noLock = typeof(QueryableNoLock).GetMethod(nameof(QueryableNoLock.NoLock));
+
+		private static MethodInfo GetMethod(Type type)
+		{
+			if (MethodsMap.TryGetValue(type, out var value))
+			{
+				return value;
+			}
+
+			lock (_noLock)
+			{
+				if (MethodsMap.TryGetValue(type, out value))
+				{
+					return value;
+				}
+
+				value = _noLock.MakeGenericMethod(type);
+
+				MethodsMap.Add(type, value);
+
+				return value;
+			}
+		}
+	}
+
 	public static class CrmQueryableEx
 	{
 		public static ICrmQueryable<TResult> Cast<TSource, TResult>(this ICrmQueryable<TSource> source)
@@ -14,11 +43,22 @@ namespace Lia.LinqToCrm
 
 		public static List<TSource> ToList<TSource>(this ICrmQueryable<TSource> source)
 		{
-			return default;
+			return new List<TSource>(source);
 		}
 
 		public static TSource First<TSource>(this ICrmQueryable<TSource> source)
 		{
+			if (source == null)
+			{
+				throw new ArgumentNullException(nameof(source));
+			}
+
+			//return source.Provider.Execute<TSource>(
+			//	Expression.Call(
+			//		null,
+			//		CachedReflectionInfo.First_TSource_1(typeof(TSource)), source.Expression));
+
+
 			return default;
 		}
 

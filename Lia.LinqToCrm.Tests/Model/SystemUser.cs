@@ -1,4 +1,6 @@
-﻿namespace Lia.LinqToCrm.Tests.Model
+﻿using Microsoft.Xrm.Sdk;
+
+namespace Lia.LinqToCrm.Tests.Model
 {
 	class SystemUser : ICrmEntity
 	{
@@ -8,6 +10,7 @@
 
 		public string EntityLogicalName { get; } = "systemuser";
 
+		[AttributeLogicalName("firstname")]
 		public string FirstName { get; set; }
 	}
 }
